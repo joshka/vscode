@@ -55,6 +55,7 @@ declare module 'vscode' {
 		readonly subject: string;
 		readonly message: string;
 		readonly displayId?: string;
+		readonly presentation?: SourceControlHistoryItemPresentation;
 		readonly author?: string;
 		readonly authorEmail?: string;
 		readonly authorIcon?: IconPath;
@@ -62,6 +63,40 @@ declare module 'vscode' {
 		readonly statistics?: SourceControlHistoryItemStatistics;
 		readonly references?: SourceControlHistoryItemRef[];
 		readonly tooltip?: MarkdownString | Array<MarkdownString> | undefined;
+	}
+
+	export interface SourceControlHistoryItemPresentation {
+		readonly node?: SourceControlHistoryNodePresentation;
+		readonly leadingText?: readonly SourceControlHistoryTextRun[];
+		readonly trailingText?: readonly SourceControlHistoryTextRun[];
+		readonly subjectText?: readonly SourceControlHistoryTextRun[];
+		readonly detailText?: readonly SourceControlHistoryTextRun[];
+		readonly badges?: readonly SourceControlHistoryBadge[];
+	}
+
+	export interface SourceControlHistoryNodePresentation {
+		readonly kind?: 'circle' | 'ring' | 'diamond' | 'text';
+		readonly text?: string;
+		readonly color?: ThemeColor;
+		readonly tooltip?: string | MarkdownString;
+	}
+
+	export interface SourceControlHistoryTextRun {
+		readonly text: string;
+		readonly part?: string;
+		readonly color?: ThemeColor;
+		readonly opacity?: number;
+		readonly fontStyle?: 'normal' | 'italic';
+		readonly fontWeight?: 'normal' | 'bold';
+		readonly tooltip?: string | MarkdownString;
+		readonly ariaLabel?: string;
+	}
+
+	export interface SourceControlHistoryBadge {
+		readonly text: string;
+		readonly color?: ThemeColor;
+		readonly backgroundColor?: ThemeColor;
+		readonly tooltip?: string | MarkdownString;
 	}
 
 	export interface SourceControlHistoryItemRef {

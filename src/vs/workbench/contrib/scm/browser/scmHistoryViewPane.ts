@@ -29,7 +29,7 @@ import { IViewPaneOptions, ViewAction, ViewPane, ViewPaneShowActions } from '../
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { renderSCMHistoryItemGraph, toISCMHistoryItemViewModelArray, SWIMLANE_WIDTH, renderSCMHistoryGraphPlaceholder, historyItemHoverLabelForeground, historyItemHoverDefaultLabelBackground, getHistoryItemIndex, toHistoryItemHoverContent } from './scmHistory.js';
 import { getHistoryItemEditorTitle, getProviderKey, isSCMHistoryItemChangeNode, isSCMHistoryItemChangeViewModelTreeElement, isSCMHistoryItemLoadMoreTreeElement, isSCMHistoryItemViewModelTreeElement, isSCMRepository } from './util.js';
-import { ISCMHistoryItem, ISCMHistoryItemChange, ISCMHistoryItemGraphNode, ISCMHistoryItemRef, ISCMHistoryItemViewModel, ISCMHistoryProvider, SCMHistoryItemChangeViewModelTreeElement, SCMHistoryItemLoadMoreTreeElement, SCMHistoryItemViewModelTreeElement, SCMIncomingHistoryItemId, SCMOutgoingHistoryItemId } from '../common/history.js';
+import { ISCMHistoryItem, ISCMHistoryItemChange, ISCMHistoryItemGraphNode, ISCMHistoryItemRef, ISCMHistoryItemViewModel, ISCMHistoryProvider, ISCMHistoryTextRun, SCMHistoryItemChangeViewModelTreeElement, SCMHistoryItemLoadMoreTreeElement, SCMHistoryItemViewModelTreeElement, SCMIncomingHistoryItemId, SCMOutgoingHistoryItemId } from '../common/history.js';
 import { HISTORY_VIEW_PANE_ID, ISCMProvider, ISCMRepository, ISCMService, ISCMViewService, ViewMode } from '../common/scm.js';
 import { IListAccessibilityProvider } from '../../../../base/browser/ui/list/listWidget.js';
 import { stripIcons } from '../../../../base/common/iconLabels.js';
@@ -409,7 +409,14 @@ registerAction2(class extends Action2 {
 
 class ListDelegate implements IListVirtualDelegate<TreeElement> {
 
-	getHeight(): number {
+	getHeight(element: TreeElement): number {
+		if (isSCMHistoryItemViewModelTreeElement(element) && ((element.historyItemViewModel.historyItem.presentation?.leadingText?.length ?? 0) > 0 || (element.historyItemViewModel.historyItem.presentation?.trailingText?.length ?? 0) > 0)) {
+			if ((element.historyItemViewModel.historyItem.presentation?.detailText?.length ?? 0) > 0) {
+				return 66;
+			}
+			return 44;
+		}
+
 		return 22;
 	}
 
@@ -430,6 +437,10 @@ interface HistoryItemTemplate {
 	readonly element: HTMLElement;
 	readonly label: IconLabel;
 	readonly graphContainer: HTMLElement;
+	readonly presentationContainer: HTMLElement;
+	readonly trailingPresentationContainer: HTMLElement;
+	readonly presentationSubjectContainer: HTMLElement;
+	readonly presentationDetailContainer: HTMLElement;
 	readonly actionBar: WorkbenchToolBar;
 	readonly labelContainer: HTMLElement;
 	readonly elementDisposables: DisposableStore;
@@ -461,6 +472,10 @@ class HistoryItemRenderer implements ICompressibleTreeRenderer<SCMHistoryItemVie
 	renderTemplate(container: HTMLElement): HistoryItemTemplate {
 		const element = append(container, $('.history-item'));
 		const graphContainer = append(element, $('.graph-container'));
+		const presentationContainer = append(element, $('.presentation-container'));
+		const trailingPresentationContainer = append(element, $('.trailing-presentation-container'));
+		const presentationSubjectContainer = append(element, $('.presentation-subject-container'));
+		const presentationDetailContainer = append(element, $('.presentation-detail-container'));
 		const iconLabel = new IconLabel(element, {
 			supportIcons: true, supportHighlights: true, supportDescriptionHighlights: true
 		});
@@ -470,7 +485,7 @@ class HistoryItemRenderer implements ICompressibleTreeRenderer<SCMHistoryItemVie
 		const actionsContainer = append(element, $('.actions'));
 		const actionBar = new WorkbenchToolBar(actionsContainer, undefined, this._menuService, this._contextKeyService, this._contextMenuService, this._keybindingService, this._commandService, this._telemetryService);
 
-		return { element, graphContainer, label: iconLabel, labelContainer, actionBar, elementDisposables: new DisposableStore(), disposables: combinedDisposable(iconLabel, actionBar) };
+		return { element, graphContainer, presentationContainer, trailingPresentationContainer, presentationSubjectContainer, presentationDetailContainer, label: iconLabel, labelContainer, actionBar, elementDisposables: new DisposableStore(), disposables: combinedDisposable(iconLabel, actionBar) };
 	}
 
 	renderElement(node: ITreeNode<SCMHistoryItemViewModelTreeElement, LabelFuzzyScore>, index: number, templateData: HistoryItemTemplate): void {
@@ -489,6 +504,16 @@ class HistoryItemRenderer implements ICompressibleTreeRenderer<SCMHistoryItemVie
 		templateData.graphContainer.classList.toggle('incoming-changes', historyItemViewModel.kind === 'incoming-changes');
 		templateData.graphContainer.classList.toggle('outgoing-changes', historyItemViewModel.kind === 'outgoing-changes');
 		templateData.graphContainer.appendChild(renderSCMHistoryItemGraph(historyItemViewModel));
+		this._renderPresentation(historyItem, templateData);
+		const hasPresentation = (historyItem.presentation?.leadingText?.length ?? 0) > 0 || (historyItem.presentation?.trailingText?.length ?? 0) > 0;
+		templateData.element.classList.toggle('has-presentation', hasPresentation);
+		templateData.element.classList.toggle('has-detail-presentation', (historyItem.presentation?.detailText?.length ?? 0) > 0);
+		if (hasPresentation && historyItem.presentation?.subjectText) {
+			this._renderPresentationText(templateData.presentationSubjectContainer, historyItem.presentation.subjectText);
+		} else {
+			templateData.presentationSubjectContainer.textContent = hasPresentation ? historyItem.subject : '';
+		}
+		this._renderPresentationText(templateData.presentationDetailContainer, historyItem.presentation?.detailText ?? []);
 
 		const historyItemRef = provider.historyProvider.get()?.historyItemRef?.get();
 		const extraClasses = historyItemRef?.revision === historyItem.id ? ['history-item-current'] : [];
@@ -514,6 +539,7 @@ class HistoryItemRenderer implements ICompressibleTreeRenderer<SCMHistoryItemVie
 			const labelConfig = this._badgesConfig.read(reader);
 
 			templateData.labelContainer.replaceChildren();
+			this._renderPresentationBadges(historyItem, templateData);
 
 			const references = historyItem.references ?
 				historyItem.references.slice(0) : [];
@@ -553,6 +579,57 @@ class HistoryItemRenderer implements ICompressibleTreeRenderer<SCMHistoryItemVie
 				}
 			}
 		}));
+	}
+
+	private _renderPresentation(historyItem: ISCMHistoryItem, templateData: HistoryItemTemplate): void {
+		templateData.presentationContainer.replaceChildren();
+		templateData.trailingPresentationContainer.replaceChildren();
+		templateData.presentationSubjectContainer.textContent = '';
+		templateData.presentationDetailContainer.replaceChildren();
+
+		this._renderPresentationText(templateData.presentationContainer, historyItem.presentation?.leadingText ?? []);
+		this._renderPresentationText(templateData.trailingPresentationContainer, historyItem.presentation?.trailingText ?? []);
+	}
+
+	private _renderPresentationText(container: HTMLElement, runs: readonly ISCMHistoryTextRun[]): void {
+		for (const run of runs) {
+			const span = append(container, $('span.presentation-text-run'));
+			span.textContent = run.text;
+			if (run.part) {
+				span.dataset.part = run.part;
+			}
+			span.style.color = run.color ? asCssVariable(run.color.id) : '';
+			span.style.opacity = run.opacity !== undefined ? `${run.opacity}` : '';
+			span.style.fontStyle = run.fontStyle ?? '';
+			span.style.fontWeight = run.fontWeight ?? '';
+
+			if (run.tooltip) {
+				span.title = typeof run.tooltip === 'string' ? run.tooltip : run.tooltip.value;
+			}
+			if (run.ariaLabel) {
+				span.ariaLabel = run.ariaLabel;
+			}
+		}
+	}
+
+	private _renderPresentationBadges(historyItem: ISCMHistoryItem, templateData: HistoryItemTemplate): void {
+		for (const badge of historyItem.presentation?.badges ?? []) {
+			const element = h('div.label.presentation-badge', {
+				style: {
+					color: badge.color ? asCssVariable(badge.color.id) : asCssVariable(foreground),
+					backgroundColor: badge.backgroundColor ? asCssVariable(badge.backgroundColor.id) : asCssVariable(historyItemHoverDefaultLabelBackground)
+				}
+			}, [
+				h('div.description@description')
+			]);
+
+			element.description.textContent = badge.text;
+			if (badge.tooltip) {
+				element.root.title = typeof badge.tooltip === 'string' ? badge.tooltip : badge.tooltip.value;
+			}
+
+			append(templateData.labelContainer, element.root);
+		}
 	}
 
 	private _renderBadge(historyItemRefs: ISCMHistoryItemRef[], showDescription: boolean, templateData: HistoryItemTemplate): void {

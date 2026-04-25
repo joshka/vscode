@@ -76,12 +76,39 @@ function toSCMHistoryItemDto(historyItem: vscode.SourceControlHistoryItem): SCMH
 	const tooltip = Array.isArray(historyItem.tooltip)
 		? MarkdownString.fromMany(historyItem.tooltip)
 		: historyItem.tooltip ? MarkdownString.from(historyItem.tooltip) : undefined;
+	const presentation = historyItem.presentation ? {
+		...historyItem.presentation,
+		node: historyItem.presentation.node ? {
+			...historyItem.presentation.node,
+			tooltip: historyItem.presentation.node.tooltip ? MarkdownString.from(historyItem.presentation.node.tooltip) : undefined
+		} : undefined,
+		leadingText: historyItem.presentation.leadingText?.map(run => ({
+			...run,
+			tooltip: run.tooltip ? MarkdownString.from(run.tooltip) : undefined
+		})),
+		trailingText: historyItem.presentation.trailingText?.map(run => ({
+			...run,
+			tooltip: run.tooltip ? MarkdownString.from(run.tooltip) : undefined
+		})),
+		subjectText: historyItem.presentation.subjectText?.map(run => ({
+			...run,
+			tooltip: run.tooltip ? MarkdownString.from(run.tooltip) : undefined
+		})),
+		detailText: historyItem.presentation.detailText?.map(run => ({
+			...run,
+			tooltip: run.tooltip ? MarkdownString.from(run.tooltip) : undefined
+		})),
+		badges: historyItem.presentation.badges?.map(badge => ({
+			...badge,
+			tooltip: badge.tooltip ? MarkdownString.from(badge.tooltip) : undefined
+		}))
+	} : undefined;
 
 	const references = historyItem.references?.map(r => ({
 		...r, icon: getHistoryItemIconDto(r.icon)
 	}));
 
-	return { ...historyItem, authorIcon, references, tooltip };
+	return { ...historyItem, authorIcon, presentation, references, tooltip };
 }
 
 function toSCMHistoryItemRefDto(historyItemRef?: vscode.SourceControlHistoryItemRef): SCMHistoryItemRefDto | undefined {

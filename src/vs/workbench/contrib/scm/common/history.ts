@@ -6,7 +6,7 @@
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { IMarkdownString } from '../../../../base/common/htmlContent.js';
 import { IObservable } from '../../../../base/common/observable.js';
-import { ThemeIcon } from '../../../../base/common/themables.js';
+import { ThemeColor, ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ColorIdentifier } from '../../../../platform/theme/common/colorUtils.js';
 import { ISCMRepository } from './scm.js';
@@ -66,6 +66,7 @@ export interface ISCMHistoryItem {
 	readonly subject: string;
 	readonly message: string;
 	readonly displayId?: string;
+	readonly presentation?: ISCMHistoryItemPresentation;
 	readonly author?: string;
 	readonly authorEmail?: string;
 	readonly authorIcon?: URI | { light: URI; dark: URI } | ThemeIcon;
@@ -73,6 +74,40 @@ export interface ISCMHistoryItem {
 	readonly statistics?: ISCMHistoryItemStatistics;
 	readonly references?: ISCMHistoryItemRef[];
 	readonly tooltip?: IMarkdownString | Array<IMarkdownString> | undefined;
+}
+
+export interface ISCMHistoryItemPresentation {
+	readonly node?: ISCMHistoryNodePresentation;
+	readonly leadingText?: readonly ISCMHistoryTextRun[];
+	readonly trailingText?: readonly ISCMHistoryTextRun[];
+	readonly subjectText?: readonly ISCMHistoryTextRun[];
+	readonly detailText?: readonly ISCMHistoryTextRun[];
+	readonly badges?: readonly ISCMHistoryBadge[];
+}
+
+export interface ISCMHistoryNodePresentation {
+	readonly kind?: 'circle' | 'ring' | 'diamond' | 'text';
+	readonly text?: string;
+	readonly color?: ThemeColor;
+	readonly tooltip?: string | IMarkdownString;
+}
+
+export interface ISCMHistoryTextRun {
+	readonly text: string;
+	readonly part?: string;
+	readonly color?: ThemeColor;
+	readonly opacity?: number;
+	readonly fontStyle?: 'normal' | 'italic';
+	readonly fontWeight?: 'normal' | 'bold';
+	readonly tooltip?: string | IMarkdownString;
+	readonly ariaLabel?: string;
+}
+
+export interface ISCMHistoryBadge {
+	readonly text: string;
+	readonly color?: ThemeColor;
+	readonly backgroundColor?: ThemeColor;
+	readonly tooltip?: string | IMarkdownString;
 }
 
 export interface ISCMHistoryItemGraphNode {

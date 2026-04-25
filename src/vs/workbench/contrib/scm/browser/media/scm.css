@@ -153,6 +153,19 @@
 	align-items: center;
 }
 
+.scm-view .monaco-list-row .history-item.has-presentation {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+	grid-template-rows: 22px 22px;
+	align-items: start;
+	container-type: inline-size;
+	width: 100%;
+}
+
+.scm-view .monaco-list-row .history-item.has-detail-presentation {
+	grid-template-rows: 22px 22px 22px;
+}
+
 .scm-view .monaco-list-row .monaco-tl-twistie:not(.collapsed) + .monaco-tl-contents > .history-item > .graph-container > svg > path:last-of-type {
 	stroke-width: 3px;
 }
@@ -161,6 +174,124 @@
 	display: flex;
 	flex-shrink: 0;
 	height: 22px;
+}
+
+.scm-view .monaco-list-row .history-item.has-presentation > .graph-container {
+	grid-column: 1;
+	grid-row: 1 / span 2;
+	align-self: start;
+	height: 44px;
+}
+
+.scm-view .monaco-list-row .history-item.has-detail-presentation > .graph-container {
+	grid-row: 1 / span 3;
+	height: 66px;
+}
+
+.scm-view .monaco-list-row .history-item > .presentation-container,
+.scm-view .monaco-list-row .history-item > .trailing-presentation-container,
+.scm-view .monaco-list-row .history-item > .presentation-subject-container,
+.scm-view .monaco-list-row .history-item > .presentation-detail-container {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 0;
+	margin-right: 8px;
+	font-family: var(--monaco-monospace-font);
+	font-size: 12px;
+	line-height: 19px;
+	white-space: pre;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.scm-view .monaco-list-row .history-item.has-presentation > .presentation-container {
+	grid-column: 2;
+	grid-row: 1;
+	min-width: 0;
+	align-self: end;
+}
+
+.scm-view .monaco-list-row .history-item.has-presentation > .trailing-presentation-container {
+	grid-column: 3;
+	grid-row: 1;
+	justify-self: end;
+	align-self: end;
+	margin-left: 8px;
+	margin-right: 0;
+}
+
+.scm-view .monaco-list-row .history-item.has-presentation > .presentation-subject-container {
+	grid-column: 2 / 5;
+	grid-row: 2;
+	min-width: 0;
+	color: var(--vscode-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size);
+	font-weight: normal;
+	line-height: 19px;
+	align-self: start;
+	white-space: nowrap;
+}
+
+.scm-view .monaco-list-row .history-item.has-presentation > .presentation-detail-container {
+	grid-column: 2 / 5;
+	grid-row: 3;
+	min-width: 0;
+	color: var(--vscode-charts-purple);
+	font-family: var(--monaco-monospace-font);
+	font-size: 12px;
+	line-height: 19px;
+	align-self: start;
+	white-space: nowrap;
+}
+
+.scm-view .monaco-list-row .history-item > .presentation-container:empty,
+.scm-view .monaco-list-row .history-item > .trailing-presentation-container:empty,
+.scm-view .monaco-list-row .history-item > .presentation-subject-container:empty,
+.scm-view .monaco-list-row .history-item > .presentation-detail-container:empty {
+	display: none;
+}
+
+.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run + .presentation-text-run,
+.scm-view .monaco-list-row .history-item > .trailing-presentation-container > .presentation-text-run + .presentation-text-run {
+	margin-left: 0;
+}
+
+.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="author-email"],
+.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="author-full"],
+.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="timestamp"],
+.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="date"] {
+	display: none;
+}
+
+@container (min-width: 560px) {
+	.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="author-local"] {
+		display: none;
+	}
+
+	.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="author-email"],
+	.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="date"] {
+		display: inline;
+	}
+}
+
+@container (min-width: 820px) {
+	.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="author-email"],
+	.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="date"] {
+		display: none;
+	}
+
+	.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="author-full"],
+	.scm-view .monaco-list-row .history-item > .presentation-container > .presentation-text-run[data-part="timestamp"] {
+		display: inline;
+	}
+}
+
+@container (max-width: 300px) {
+	.scm-view .monaco-list-row .history-item > .trailing-presentation-container {
+		display: none;
+	}
 }
 
 .scm-view .monaco-list-row .history-item > .graph-container.current > .graph > circle:last-child,
@@ -177,6 +308,11 @@
 
 .scm-view .monaco-list-row .history-item > .graph-container > .graph > circle {
 	stroke: var(--vscode-sideBar-background);
+}
+
+.scm-view .monaco-list-row .history-item > .graph-container > .graph > .node-backplate {
+	fill: var(--vscode-sideBar-background);
+	stroke: transparent;
 }
 
 .scm-view .monaco-list-row:hover .history-item > .graph-container > .graph > circle:first-of-type {
@@ -216,6 +352,21 @@
 	gap: 4px;
 }
 
+.scm-view .monaco-list-row .history-item.has-presentation > .label-container {
+	grid-column: 4;
+	grid-row: 1;
+	justify-self: end;
+	align-self: center;
+}
+
+.scm-view .monaco-list-row .history-item.has-presentation > .monaco-icon-label {
+	grid-column: 2 / span 2;
+	grid-row: 2;
+	min-width: 0;
+	align-self: start;
+	display: none;
+}
+
 .scm-view .monaco-list-row .history-item > .label-container > .label {
 	display: flex;
 	align-items: center;
@@ -247,6 +398,10 @@
 	max-width: 100px;
 }
 
+.scm-view .monaco-list-row .history-item > .label-container > .label.presentation-badge > .description {
+	padding-left: 4px;
+}
+
 .scm-view .monaco-list-row .history-item .monaco-icon-label .icon-container {
 	display: flex;
 	padding-right: 4px;
@@ -268,6 +423,11 @@
 
 .scm-view .monaco-list-row .history-item > .actions {
 	margin-left: 4px;
+}
+
+.scm-view .monaco-list-row .history-item.has-presentation > .actions {
+	grid-column: 5;
+	grid-row: 1 / span 2;
 }
 
 .scm-view .monaco-list-row .resource-group > .name {

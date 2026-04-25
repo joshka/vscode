@@ -2037,6 +2037,7 @@ export interface SCMHistoryItemDto {
 	readonly subject: string;
 	readonly message: string;
 	readonly displayId?: string;
+	readonly presentation?: SCMHistoryItemPresentationDto;
 	readonly author?: string;
 	readonly authorIcon?: IconPathDto;
 	readonly authorEmail?: string;
@@ -2048,6 +2049,40 @@ export interface SCMHistoryItemDto {
 	};
 	readonly references?: SCMHistoryItemRefDto[];
 	readonly tooltip?: IMarkdownString | Array<IMarkdownString> | undefined;
+}
+
+export interface SCMHistoryItemPresentationDto {
+	readonly node?: SCMHistoryNodePresentationDto;
+	readonly leadingText?: readonly SCMHistoryTextRunDto[];
+	readonly trailingText?: readonly SCMHistoryTextRunDto[];
+	readonly subjectText?: readonly SCMHistoryTextRunDto[];
+	readonly detailText?: readonly SCMHistoryTextRunDto[];
+	readonly badges?: readonly SCMHistoryBadgeDto[];
+}
+
+export interface SCMHistoryNodePresentationDto {
+	readonly kind?: 'circle' | 'ring' | 'diamond' | 'text';
+	readonly text?: string;
+	readonly color?: ThemeColor;
+	readonly tooltip?: string | IMarkdownString;
+}
+
+export interface SCMHistoryTextRunDto {
+	readonly text: string;
+	readonly part?: string;
+	readonly color?: ThemeColor;
+	readonly opacity?: number;
+	readonly fontStyle?: 'normal' | 'italic';
+	readonly fontWeight?: 'normal' | 'bold';
+	readonly tooltip?: string | IMarkdownString;
+	readonly ariaLabel?: string;
+}
+
+export interface SCMHistoryBadgeDto {
+	readonly text: string;
+	readonly color?: ThemeColor;
+	readonly backgroundColor?: ThemeColor;
+	readonly tooltip?: string | IMarkdownString;
 }
 
 export interface SCMHistoryItemChangeDto {

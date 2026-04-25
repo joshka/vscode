@@ -19,6 +19,8 @@ import { findLastIdx } from '../../../../base/common/arraysFind.js';
 
 export const SWIMLANE_HEIGHT = 22;
 export const SWIMLANE_WIDTH = 11;
+const RICH_SWIMLANE_HEIGHT = 44;
+const RICH_SWIMLANE_DETAIL_HEIGHT = 66;
 const SWIMLANE_CURVE_RADIUS = 5;
 const CIRCLE_RADIUS = 4;
 const CIRCLE_STROKE_WIDTH = 2;
@@ -104,8 +106,55 @@ function drawDashedCircle(index: number, radius: number, strokeWidth: number, co
 	return circle;
 }
 
+function drawDiamond(index: number, radius: number, colorIdentifier: string): SVGPolygonElement {
+	const cx = SWIMLANE_WIDTH * (index + 1);
+	const cy = SWIMLANE_WIDTH;
+	const diamond = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+	diamond.setAttribute('points', `${cx},${cy - radius} ${cx + radius},${cy} ${cx},${cy + radius} ${cx - radius},${cy}`);
+	diamond.style.fill = asCssVariable(colorIdentifier);
+
+	return diamond;
+}
+
+function drawRing(index: number, radius: number, strokeWidth: number, colorIdentifier: string): SVGCircleElement {
+	const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+	circle.setAttribute('cx', `${SWIMLANE_WIDTH * (index + 1)}`);
+	circle.setAttribute('cy', `${SWIMLANE_WIDTH}`);
+	circle.setAttribute('r', `${radius}`);
+	circle.style.fill = 'none';
+	circle.style.stroke = asCssVariable(colorIdentifier);
+	circle.style.strokeWidth = `${strokeWidth}px`;
+
+	return circle;
+}
+
+function drawNodeBackplate(index: number): SVGCircleElement {
+	const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+	circle.classList.add('node-backplate');
+	circle.setAttribute('cx', `${SWIMLANE_WIDTH * (index + 1)}`);
+	circle.setAttribute('cy', `${SWIMLANE_WIDTH}`);
+	circle.setAttribute('r', `${CIRCLE_RADIUS + 4}`);
+
+	return circle;
+}
+
+function drawTextMarker(index: number, textContent: string, colorIdentifier: string): SVGTextElement {
+	const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+	text.textContent = textContent;
+	text.setAttribute('x', `${SWIMLANE_WIDTH * (index + 1)}`);
+	text.setAttribute('y', `${SWIMLANE_WIDTH}`);
+	text.setAttribute('dominant-baseline', 'central');
+	text.setAttribute('text-anchor', 'middle');
+	text.style.fill = asCssVariable(colorIdentifier);
+	text.style.fontWeight = '600';
+	text.style.fontSize = '13px';
+
+	return text;
+}
+
 function drawVerticalLine(x1: number, y1: number, y2: number, color: string, strokeWidth = 1): SVGPathElement {
 	const path = createPath(color, strokeWidth);
+	path.setAttribute('stroke-linecap', 'butt');
 	path.setAttribute('d', `M ${x1} ${y1} V ${y2}`);
 
 	return path;
@@ -121,11 +170,43 @@ function findLastIndex(nodes: ISCMHistoryItemGraphNode[], id: string): number {
 	return -1;
 }
 
+function renderPresentedNode(svg: SVGElement, historyItemViewModel: ISCMHistoryItemViewModel, circleIndex: number, circleColor: string): boolean {
+	const node = historyItemViewModel.historyItem.presentation?.node;
+	const nodeColor = node?.color?.id ?? circleColor;
+
+	if (!node?.kind || node.kind === 'circle') {
+		return false;
+	}
+
+	svg.append(drawNodeBackplate(circleIndex));
+
+	let nodeElement: SVGElement;
+	if (node.kind === 'diamond') {
+		nodeElement = drawDiamond(circleIndex, CIRCLE_RADIUS + 2, nodeColor);
+	} else if (node.kind === 'ring') {
+		nodeElement = drawRing(circleIndex, CIRCLE_RADIUS + 1, CIRCLE_STROKE_WIDTH, nodeColor);
+	} else {
+		nodeElement = drawTextMarker(circleIndex, node.text ?? '', nodeColor);
+	}
+
+	if (node.tooltip) {
+		const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+		title.textContent = typeof node.tooltip === 'string' ? node.tooltip : node.tooltip.value;
+		nodeElement.append(title);
+	}
+
+	svg.append(nodeElement);
+	return true;
+}
+
 export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemViewModel): SVGElement {
 	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 	svg.classList.add('graph');
 
 	const historyItem = historyItemViewModel.historyItem;
+	const swimlaneHeight = historyItem.presentation?.detailText?.length ? RICH_SWIMLANE_DETAIL_HEIGHT : historyItem.presentation ? RICH_SWIMLANE_HEIGHT : SWIMLANE_HEIGHT;
+	const curveMiddleY = SWIMLANE_HEIGHT / 2;
+	const curveBottomY = SWIMLANE_HEIGHT;
 	const inputSwimlanes = historyItemViewModel.inputSwimlanes;
 	const outputSwimlanes = historyItemViewModel.outputSwimlanes;
 
@@ -168,7 +249,7 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 				inputSwimlanes[index].id === outputSwimlanes[outputSwimlaneIndex].id) {
 				if (index === outputSwimlaneIndex) {
 					// Draw |
-					const path = drawVerticalLine(SWIMLANE_WIDTH * (index + 1), 0, SWIMLANE_HEIGHT, color);
+					const path = drawVerticalLine(SWIMLANE_WIDTH * (index + 1), 0, swimlaneHeight, color);
 					svg.append(path);
 				} else {
 					const d: string[] = [];
@@ -179,16 +260,16 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 					d.push(`V 6`);
 
 					// Draw /
-					d.push(`A ${SWIMLANE_CURVE_RADIUS} ${SWIMLANE_CURVE_RADIUS} 0 0 1 ${(SWIMLANE_WIDTH * (index + 1)) - SWIMLANE_CURVE_RADIUS} ${SWIMLANE_HEIGHT / 2}`);
+					d.push(`A ${SWIMLANE_CURVE_RADIUS} ${SWIMLANE_CURVE_RADIUS} 0 0 1 ${(SWIMLANE_WIDTH * (index + 1)) - SWIMLANE_CURVE_RADIUS} ${curveMiddleY}`);
 
 					// Draw -
 					d.push(`H ${(SWIMLANE_WIDTH * (outputSwimlaneIndex + 1)) + SWIMLANE_CURVE_RADIUS}`);
 
 					// Draw /
-					d.push(`A ${SWIMLANE_CURVE_RADIUS} ${SWIMLANE_CURVE_RADIUS} 0 0 0 ${SWIMLANE_WIDTH * (outputSwimlaneIndex + 1)} ${(SWIMLANE_HEIGHT / 2) + SWIMLANE_CURVE_RADIUS}`);
+					d.push(`A ${SWIMLANE_CURVE_RADIUS} ${SWIMLANE_CURVE_RADIUS} 0 0 0 ${SWIMLANE_WIDTH * (outputSwimlaneIndex + 1)} ${curveMiddleY + SWIMLANE_CURVE_RADIUS}`);
 
 					// Draw |
-					d.push(`V ${SWIMLANE_HEIGHT}`);
+					d.push(`V ${swimlaneHeight}`);
 
 					path.setAttribute('d', d.join(' '));
 					svg.append(path);
@@ -211,11 +292,12 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 		const path = createPath(outputSwimlanes[parentOutputIndex].color);
 
 		// Draw \
-		d.push(`M ${SWIMLANE_WIDTH * parentOutputIndex} ${SWIMLANE_HEIGHT / 2}`);
-		d.push(`A ${SWIMLANE_WIDTH} ${SWIMLANE_WIDTH} 0 0 1 ${SWIMLANE_WIDTH * (parentOutputIndex + 1)} ${SWIMLANE_HEIGHT}`);
+		d.push(`M ${SWIMLANE_WIDTH * parentOutputIndex} ${curveMiddleY}`);
+		d.push(`A ${SWIMLANE_WIDTH} ${SWIMLANE_WIDTH} 0 0 1 ${SWIMLANE_WIDTH * (parentOutputIndex + 1)} ${curveBottomY}`);
+		d.push(`V ${swimlaneHeight}`);
 
 		// Draw -
-		d.push(`M ${SWIMLANE_WIDTH * parentOutputIndex} ${SWIMLANE_HEIGHT / 2}`);
+		d.push(`M ${SWIMLANE_WIDTH * parentOutputIndex} ${curveMiddleY}`);
 		d.push(`H ${SWIMLANE_WIDTH * (circleIndex + 1)} `);
 
 		path.setAttribute('d', d.join(' '));
@@ -224,18 +306,20 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 
 	// Draw | to *
 	if (inputIndex !== -1) {
-		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), 0, SWIMLANE_HEIGHT / 2, inputSwimlanes[inputIndex].color);
+		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), 0, SWIMLANE_WIDTH, inputSwimlanes[inputIndex].color);
 		svg.append(path);
 	}
 
 	// Draw | from *
 	if (historyItem.parentIds.length > 0) {
-		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), SWIMLANE_HEIGHT / 2, SWIMLANE_HEIGHT, circleColor);
+		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), SWIMLANE_WIDTH, swimlaneHeight, circleColor);
 		svg.append(path);
 	}
 
 	// Draw *
-	if (historyItemViewModel.kind === 'HEAD') {
+	if (renderPresentedNode(svg, historyItemViewModel, circleIndex, circleColor)) {
+		// Node rendered from provider-supplied presentation.
+	} else if (historyItemViewModel.kind === 'HEAD') {
 		// HEAD
 		const outerCircle = drawCircle(circleIndex, CIRCLE_RADIUS + 3, CIRCLE_STROKE_WIDTH, circleColor);
 		svg.append(outerCircle);
@@ -268,7 +352,7 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 	}
 
 	// Set dimensions
-	svg.style.height = `${SWIMLANE_HEIGHT}px`;
+	svg.style.height = `${swimlaneHeight}px`;
 	svg.style.width = `${SWIMLANE_WIDTH * (Math.max(inputSwimlanes.length, outputSwimlanes.length, 1) + 1)}px`;
 
 	return svg;

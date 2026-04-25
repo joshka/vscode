@@ -4,7 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import { CancellationToken, Disposable, Event, EventEmitter, FileDecoration, FileDecorationProvider, SourceControlHistoryItem, SourceControlHistoryItemChange, SourceControlHistoryOptions, SourceControlHistoryProvider, ThemeIcon, Uri, window, LogOutputChannel, SourceControlHistoryItemRef, l10n, SourceControlHistoryItemRefsChangeEvent, workspace, ConfigurationChangeEvent, Command, commands } from 'vscode';
+import * as cp from 'child_process';
+
+import { CancellationToken, Disposable, Event, EventEmitter, FileDecoration, FileDecorationProvider, SourceControlHistoryItem, SourceControlHistoryItemChange, SourceControlHistoryOptions, SourceControlHistoryProvider, SourceControlHistoryTextRun, ThemeColor, ThemeIcon, Uri, window, LogOutputChannel, SourceControlHistoryItemRef, l10n, SourceControlHistoryItemRefsChangeEvent, workspace, ConfigurationChangeEvent, Command, commands } from 'vscode';
 import { Repository, Resource } from './repository';
 import { IDisposable, deltaHistoryItemRefs, dispose, filterEvent, subject, truncate } from './util';
 import { toMultiFileDiffEditorUris } from './uri';
@@ -16,6 +18,24 @@ import { OperationKind, OperationResult } from './operation';
 import { ISourceControlHistoryItemDetailsProviderRegistry, provideSourceControlHistoryItemAvatar, provideSourceControlHistoryItemHoverCommands, provideSourceControlHistoryItemMessageLinks } from './historyItemDetailsProvider';
 import { throttle } from './decorators';
 import { getHistoryItemHover, getHoverCommitHashCommands, processHoverRemoteCommands } from './hover';
+
+interface JjHistoryItemMetadata {
+	readonly shortestChangeId: string;
+	readonly changeId: string;
+	readonly shortestCommitId: string;
+	readonly shortCommitId: string;
+	readonly commitId: string;
+	readonly parentIds: string[];
+	readonly authorName: string;
+	readonly authorEmail: string;
+	readonly authorDate: Date | undefined;
+	readonly description: string;
+	readonly bookmarks: string;
+	readonly current: boolean;
+	readonly empty: boolean;
+	readonly conflict: boolean;
+	readonly divergent: boolean;
+}
 
 function compareSourceControlHistoryItemRef(ref1: SourceControlHistoryItemRef, ref2: SourceControlHistoryItemRef): number {
 	const getOrder = (ref: SourceControlHistoryItemRef): number => {
@@ -293,34 +313,40 @@ export class GitHistoryProvider implements SourceControlHistoryProvider, FileDec
 				this.historyItemDetailProviderRegistry, this.repository, avatarQuery);
 
 			const remoteHoverCommands = await provideSourceControlHistoryItemHoverCommands(this.historyItemDetailProviderRegistry, this.repository) ?? [];
+			const jjHistoryItemMetadata = await this._getPrototypeJjHistoryItemMetadata(commits.map(commit => commit.hash), token);
 
 			await ensureEmojis();
 
 			const historyItems: SourceControlHistoryItem[] = [];
+			const currentJjMetadata = Array.from(jjHistoryItemMetadata.values()).find(metadata => metadata.current);
+			if (currentJjMetadata && !commits.some(commit => commit.hash === currentJjMetadata.commitId)) {
+				historyItems.push(this._createPrototypeJjHistoryItem(currentJjMetadata, remoteHoverCommands));
+			}
+
 			for (const commit of commits) {
 				const message = emojify(commit.message);
+				const jjMetadata = jjHistoryItemMetadata.get(commit.hash);
+				const itemSubject = jjMetadata ? this._getPrototypeJjSubject(jjMetadata) : subject(message);
 				const messageWithLinks = await provideSourceControlHistoryItemMessageLinks(
 					this.historyItemDetailProviderRegistry, this.repository, message) ?? message;
 
 				const avatarUrl = commitAvatars?.get(commit.hash);
 				const references = this._resolveHistoryItemRefs(commit);
 
-				const commands: Command[][] = [
-					getHoverCommitHashCommands(Uri.file(this.repository.root), commit.hash),
-					processHoverRemoteCommands(remoteHoverCommands, commit.hash)
-				];
+				const commands = this._getPrototypeJjHoverCommandGroups(jjMetadata, commit.hash, remoteHoverCommands);
 
 				const tooltip = getHistoryItemHover(avatarUrl, commit.authorName, commit.authorEmail, commit.authorDate ?? commit.commitDate, messageWithLinks, commit.shortStat, commands, commit.coAuthors);
 
 				historyItems.push({
 					id: commit.hash,
 					parentIds: commit.parents,
-					subject: subject(message),
+					subject: itemSubject,
 					message: messageWithLinks,
-					author: commit.authorName,
+					author: jjHistoryItemMetadata.has(commit.hash) ? undefined : commit.authorName,
 					authorEmail: commit.authorEmail,
 					authorIcon: avatarUrl ? Uri.parse(avatarUrl) : new ThemeIcon('account'),
 					displayId: truncate(commit.hash, this.commitShortHashLength, false),
+					presentation: this._getPrototypePresentation(commit, jjMetadata),
 					timestamp: commit.authorDate?.getTime(),
 					statistics: commit.shortStat ?? { files: 0, insertions: 0, deletions: 0 },
 					references: references.length !== 0 ? references : undefined,
@@ -401,19 +427,26 @@ export class GitHistoryProvider implements SourceControlHistoryProvider, FileDec
 
 			const avatarUrl = commitAvatars?.get(commit.hash);
 			const references = this._resolveHistoryItemRefs(commit);
+			const remoteHoverCommands = await provideSourceControlHistoryItemHoverCommands(this.historyItemDetailProviderRegistry, this.repository) ?? [];
+			const jjHistoryItemMetadata = await this._getPrototypeJjHistoryItemMetadata([commit.hash], token);
+			const jjMetadata = jjHistoryItemMetadata.get(commit.hash);
+			const itemSubject = jjMetadata ? this._getPrototypeJjSubject(jjMetadata) : subject;
+			const commands = this._getPrototypeJjHoverCommandGroups(jjMetadata, commit.hash, remoteHoverCommands);
 
 			return {
 				id: commit.hash,
 				parentIds: commit.parents,
-				subject,
+				subject: itemSubject,
 				message: messageWithLinks,
-				author: commit.authorName,
+				author: jjHistoryItemMetadata.has(commit.hash) ? undefined : commit.authorName,
 				authorEmail: commit.authorEmail,
 				authorIcon: avatarUrl ? Uri.parse(avatarUrl) : new ThemeIcon('account'),
 				displayId: truncate(commit.hash, this.commitShortHashLength, false),
+				presentation: this._getPrototypePresentation(commit, jjMetadata),
 				timestamp: commit.authorDate?.getTime(),
 				statistics: commit.shortStat ?? { files: 0, insertions: 0, deletions: 0 },
-				references: references.length !== 0 ? references : undefined
+				references: references.length !== 0 ? references : undefined,
+				tooltip: jjMetadata ? getHistoryItemHover(avatarUrl, commit.authorName, commit.authorEmail, commit.authorDate ?? commit.commitDate, messageWithLinks, commit.shortStat, commands, commit.coAuthors) : undefined
 			} satisfies SourceControlHistoryItem;
 		} catch (err) {
 			this.logger.error(`[GitHistoryProvider][resolveHistoryItem] Failed to resolve history item '${historyItemId}': ${err}`);
@@ -536,6 +569,233 @@ export class GitHistoryProvider implements SourceControlHistoryProvider, FileDec
 		}
 
 		return references.sort(compareSourceControlHistoryItemRef);
+	}
+
+	private _createPrototypeJjHistoryItem(jjMetadata: JjHistoryItemMetadata, remoteHoverCommands: Command[]): SourceControlHistoryItem {
+		const subject = this._getPrototypeJjSubject(jjMetadata);
+
+		return {
+			id: jjMetadata.commitId,
+			parentIds: jjMetadata.parentIds,
+			subject,
+			message: subject,
+			author: undefined,
+			authorEmail: jjMetadata.authorEmail,
+			authorIcon: new ThemeIcon('account'),
+			displayId: jjMetadata.shortCommitId,
+			presentation: this._getPrototypePresentation(undefined, jjMetadata),
+			timestamp: jjMetadata.authorDate?.getTime(),
+			statistics: { files: 0, insertions: 0, deletions: 0 },
+			tooltip: getHistoryItemHover(
+				undefined,
+				jjMetadata.authorName,
+				jjMetadata.authorEmail,
+				jjMetadata.authorDate,
+				subject,
+				undefined,
+				this._getPrototypeJjHoverCommandGroups(jjMetadata, jjMetadata.commitId, remoteHoverCommands))
+		} satisfies SourceControlHistoryItem;
+	}
+
+	private _getPrototypeJjSubject(jjMetadata: JjHistoryItemMetadata): string {
+		return jjMetadata.description || '(empty) (no description set)';
+	}
+
+	private _getPrototypeJjHoverCommands(jjMetadata: JjHistoryItemMetadata | undefined): Command[] {
+		if (!jjMetadata) {
+			return [];
+		}
+
+		const changeDisplayId = jjMetadata.changeId.slice(0, Math.max(8, jjMetadata.shortestChangeId.length));
+		return [{
+			title: `$(source-control) ${changeDisplayId}`,
+			tooltip: 'Copy jj Change ID',
+			command: 'git.copyContentToClipboard',
+			arguments: [jjMetadata.changeId]
+		}];
+	}
+
+	private _getPrototypeJjHoverCommandGroups(jjMetadata: JjHistoryItemMetadata | undefined, commitId: string, remoteHoverCommands: Command[]): Command[][] {
+		return [
+			[
+				...this._getPrototypeJjHoverCommands(jjMetadata),
+				...getHoverCommitHashCommands(Uri.file(this.repository.root), commitId)
+			],
+			processHoverRemoteCommands(remoteHoverCommands, commitId)
+		].filter(commands => commands.length !== 0);
+	}
+
+	private _getPrototypePresentation(commit: Commit | undefined, jjMetadata: JjHistoryItemMetadata | undefined): SourceControlHistoryItem['presentation'] {
+		if (jjMetadata) {
+			const changeDisplayId = jjMetadata.changeId.slice(0, Math.max(8, jjMetadata.shortestChangeId.length));
+			const subject = this._getPrototypeJjSubject(jjMetadata);
+			const badges: {
+				readonly text: string;
+				readonly color?: ThemeColor;
+				readonly backgroundColor?: ThemeColor;
+				readonly tooltip?: string;
+			}[] = [];
+			if (jjMetadata.empty) {
+				badges.push({ text: 'empty', backgroundColor: new ThemeColor('badge.background'), tooltip: 'jj empty change' });
+			}
+			if (jjMetadata.conflict) {
+				badges.push({ text: 'conflict', backgroundColor: new ThemeColor('statusBarItem.errorBackground'), tooltip: 'jj conflicted change' });
+			}
+			if (jjMetadata.divergent) {
+				badges.push({ text: 'divergent', backgroundColor: new ThemeColor('statusBarItem.warningBackground'), tooltip: 'jj divergent change' });
+			}
+
+			const author = this._formatPrototypeJjAuthor(jjMetadata.authorName, jjMetadata.authorEmail);
+			return {
+				node: jjMetadata.current
+					? { kind: 'text', text: '@', color: new ThemeColor('charts.green'), tooltip: 'jj working copy' }
+					: jjMetadata.empty
+						? { kind: 'diamond', color: new ThemeColor('charts.blue'), tooltip: 'jj empty change' }
+					: { kind: 'ring', color: new ThemeColor('charts.blue'), tooltip: 'jj change' },
+				leadingText: [
+					{ text: jjMetadata.shortestChangeId, part: 'change-id', color: new ThemeColor('charts.purple'), fontWeight: 'bold', tooltip: `jj change id ${jjMetadata.changeId}` },
+					{ text: `${changeDisplayId.slice(jjMetadata.shortestChangeId.length)} `, part: 'change-id', color: new ThemeColor('descriptionForeground'), opacity: 0.65, tooltip: `jj change id ${jjMetadata.changeId}` },
+					{ text: `${author.full} `, part: 'author-full', color: new ThemeColor('charts.yellow') },
+					{ text: `${author.email} `, part: 'author-email', color: new ThemeColor('charts.yellow') },
+					{ text: `${author.local} `, part: 'author-local', color: new ThemeColor('charts.yellow') },
+					{ text: jjMetadata.authorDate ? `${this._formatPrototypeJjTimestamp(jjMetadata.authorDate)} ` : '', part: 'timestamp', color: new ThemeColor('charts.blue') },
+					{ text: jjMetadata.authorDate ? `${this._formatPrototypeJjDate(jjMetadata.authorDate)} ` : '', part: 'date', color: new ThemeColor('charts.blue') }
+				],
+				trailingText: this._getPrototypeJjCommitText(jjMetadata),
+				subjectText: [{ text: subject, color: jjMetadata.empty ? new ThemeColor('charts.green') : undefined }],
+				detailText: this._getPrototypeJjBookmarkText(jjMetadata),
+				badges: badges.length !== 0 ? badges : undefined
+			};
+		}
+
+		if (!commit) {
+			return undefined;
+		}
+
+		const displayId = truncate(commit.hash, this.commitShortHashLength, false);
+		const isCurrent = commit.hash === this.currentHistoryItemRef?.revision;
+
+		return {
+			node: isCurrent
+				? { kind: 'text', text: '@', color: new ThemeColor('charts.green'), tooltip: 'Current history item' }
+				: commit.parents.length > 1
+					? { kind: 'diamond', color: new ThemeColor('charts.yellow'), tooltip: 'Merge history item' }
+					: { kind: 'ring', color: new ThemeColor('charts.blue'), tooltip: 'History item' },
+			leadingText: [
+				{ text: displayId.slice(0, Math.min(4, displayId.length)), color: new ThemeColor('charts.purple'), fontWeight: 'bold', tooltip: 'Prototype styled identifier prefix' },
+				{ text: displayId.slice(Math.min(4, displayId.length)), color: new ThemeColor('descriptionForeground'), opacity: 0.75, tooltip: 'Prototype styled identifier suffix' }
+			],
+			badges: commit.parents.length > 1
+				? [{ text: 'merge', backgroundColor: new ThemeColor('badge.background'), tooltip: 'Prototype provider-supplied badge' }]
+				: undefined
+			};
+	}
+
+	private async _getPrototypeJjHistoryItemMetadata(commitIds: string[], token: CancellationToken): Promise<Map<string, JjHistoryItemMetadata>> {
+		if (token.isCancellationRequested || commitIds.length === 0) {
+			return new Map();
+		}
+
+		const revset = [...commitIds.map(id => `present(${id})`), '@'].join('|');
+		const template = 'commit_id ++ "\\t" ++ parents.map(|c| c.commit_id()).join(" ") ++ "\\t" ++ change_id.shortest() ++ "\\t" ++ change_id.short() ++ "\\t" ++ commit_id.shortest() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ author.name() ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp().format("%Y-%m-%d %H:%M:%S") ++ "\\t" ++ description.first_line() ++ "\\t" ++ bookmarks ++ "\\t" ++ if(current_working_copy, "@", "-") ++ "\\t" ++ if(empty, "empty", "-") ++ "\\t" ++ if(conflict, "conflict", "-") ++ "\\t" ++ if(divergent, "divergent", "-") ++ "\\n"';
+		const stdout = await this._execPrototypeJj([
+			'--no-pager',
+			'log',
+			'-r',
+			revset,
+			'--no-graph',
+			'-T',
+			template
+		], token);
+
+		const result = new Map<string, JjHistoryItemMetadata>();
+		for (const line of stdout.split(/\r?\n/)) {
+			const [commitId, parentIds, shortestChangeId, changeId, shortestCommitId, shortCommitId, authorName, authorEmail, authorDate, description, bookmarks, current, empty, conflict, divergent] = line.split('\t');
+			if (!shortestChangeId || !changeId || !shortestCommitId || !commitId) {
+				continue;
+			}
+
+			result.set(commitId, {
+				shortestChangeId,
+				changeId,
+				shortestCommitId,
+				shortCommitId,
+				commitId,
+				parentIds: parentIds ? parentIds.split(' ').filter(id => id.length !== 0) : [],
+				authorName,
+				authorEmail,
+				authorDate: authorDate ? new Date(authorDate) : undefined,
+				description,
+				bookmarks,
+				current: current === '@',
+				empty: empty === 'empty',
+				conflict: conflict === 'conflict',
+				divergent: divergent === 'divergent'
+			});
+		}
+
+		return result;
+	}
+
+	private _getPrototypeJjCommitText(jjMetadata: JjHistoryItemMetadata): NonNullable<SourceControlHistoryItem['presentation']>['leadingText'] {
+		const showCommitId = workspace.getConfiguration('git', Uri.file(this.repository.root)).get<boolean>('prototypeJjShowCommitId', true);
+		if (!showCommitId) {
+			return [];
+		}
+
+		const commitDisplayId = jjMetadata.shortCommitId.slice(0, Math.max(8, jjMetadata.shortestCommitId.length));
+		const runs: SourceControlHistoryTextRun[] = [];
+		if (showCommitId) {
+			runs.push(
+				{ text: jjMetadata.shortestCommitId, part: 'commit-id', color: new ThemeColor('charts.blue'), fontWeight: 'bold', tooltip: `Git commit id ${jjMetadata.commitId}` },
+				{ text: commitDisplayId.slice(jjMetadata.shortestCommitId.length), part: 'commit-id', color: new ThemeColor('descriptionForeground'), opacity: 0.65, tooltip: `Git commit id ${jjMetadata.commitId}` }
+			);
+		}
+
+		return runs;
+	}
+
+	private _getPrototypeJjBookmarkText(jjMetadata: JjHistoryItemMetadata): SourceControlHistoryTextRun[] {
+		if (!jjMetadata.bookmarks) {
+			return [];
+		}
+
+		return [
+			{ text: jjMetadata.bookmarks, part: 'bookmark', color: new ThemeColor('charts.purple'), tooltip: `jj bookmarks ${jjMetadata.bookmarks}` }
+		];
+	}
+
+	private _formatPrototypeJjTimestamp(date: Date): string {
+		const pad = (value: number) => value.toString().padStart(2, '0');
+		return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+	}
+
+	private _formatPrototypeJjDate(date: Date): string {
+		const pad = (value: number) => value.toString().padStart(2, '0');
+		return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+	}
+
+	private _formatPrototypeJjAuthor(authorName: string | undefined, authorEmail: string | undefined): { full: string; email: string; local: string } {
+		const email = authorEmail ?? authorName ?? '';
+		const local = truncate(email.includes('@') ? email.slice(0, email.indexOf('@')) : email, 12, false);
+		const name = authorName && authorName !== email ? authorName : '';
+
+		return {
+			full: truncate(name ? `${name} <${email}>` : email, 28, false),
+			email: truncate(email, 24, false),
+			local
+		};
+	}
+
+	private _execPrototypeJj(args: string[], token: CancellationToken): Promise<string> {
+		return new Promise(resolve => {
+			const child = cp.spawn('jj', args, { cwd: this.repository.root });
+			let stdout = '';
+
+			child.stdout.on('data', data => stdout += data.toString());
+			child.on('error', () => resolve(''));
+			child.on('close', () => resolve(token.isCancellationRequested ? '' : stdout));
+		});
 	}
 
 	private async resolveHEADMergeBase(): Promise<Branch | undefined> {
