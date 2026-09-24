@@ -1,0 +1,5 @@
+{
+  "extends": "../../../extensions/tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "out", "types": ["node"], "skipLibCheck": true },
+  "include": ["src/**/*.ts", "../../../src/vscode-dts/vscode.d.ts", "../../../src/vscode-dts/vscode.proposed.scmHistoryProvider.d.ts", "../../../src/vscode-dts/vscode.proposed.scmHistoryItemIdentifier.d.ts"]
+}

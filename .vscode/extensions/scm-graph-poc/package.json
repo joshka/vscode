@@ -1,0 +1,19 @@
+{
+  "name": "scm-graph-poc",
+  "displayName": "SCM Graph API Proof of Concept",
+  "publisher": "vscode-samples",
+  "version": "0.0.1",
+  "private": true,
+  "engines": { "vscode": "^1.140.0" },
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "enabledApiProposals": ["scmHistoryProvider", "scmHistoryItemIdentifier"],
+  "capabilities": { "untrustedWorkspaces": { "supported": false }, "virtualWorkspaces": false },
+  "scripts": { "compile": "tsc -p .", "test": "node --test out/backend.test.js" },
+  "contributes": {
+    "commands": [
+      { "command": "scmGraphPoc.refresh", "title": "SCM Graph PoC: Refresh", "icon": "$(refresh)" },
+      { "command": "scmGraphPoc.toggleIdentifiers", "title": "SCM Graph PoC: Toggle Experimental Identifiers" }
+    ]
+  }
+}
